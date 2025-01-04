@@ -1,1 +1,7 @@
-streamlit
+streamlit==1.24.0
+requests==2.31.0
+pymongo==4.4.1
+pyspark==3.4.1
+pandas==2.0.3
+folium==0.14.0
+streamlit-folium==0.15.0

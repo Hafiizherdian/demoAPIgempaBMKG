@@ -1,6 +1,16 @@
+# app.py
 import streamlit as st
 import requests
 from pymongo import MongoClient
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
+import pandas as pd
+import folium
+from streamlit_folium import folium_static
+import os
+
+# Menggunakan environment variable untuk MongoDB URI
+MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb+srv://hafiizhherdian:Herdian17@cluster0.c1cmt.mongodb.net/')
 
 # Fungsi untuk fetch data dari API BMKG
 def fetch_earthquake_data():
@@ -19,37 +29,47 @@ def fetch_earthquake_data():
 
 # Fungsi untuk menyimpan data ke MongoDB
 def save_to_mongodb(data):
-    client = MongoClient("mongodb://localhost:27017/")
+    client = MongoClient(MONGODB_URI)
     db = client["gempa"]
     collection = db["real_time_data"]
-    collection.insert_one(data)
+    if not collection.find_one({"Tanggal": data["Tanggal"], "Jam": data["Jam"]}):
+        collection.insert_one(data)
 
-# Tampilan aplikasi dengan Streamlit
-st.title("Dashboard Data Gempa Terkini")
-
-# Tombol untuk mengambil data
-if st.button("Ambil Data Real-Time"):
-    data = fetch_earthquake_data()
+# Fungsi untuk menampilkan peta lokasi gempa
+def display_map(data):
     if data:
-        st.success("Data berhasil diambil!")
-        save_to_mongodb(data)
-        st.write(data)
+        m = folium.Map(location=[float(data['Lintang']), float(data['Bujur'])], zoom_start=5)
+        folium.Marker(
+            location=[float(data['Lintang']), float(data['Bujur'])],
+            popup=f"Magnitude: {data['Magnitude']}, Kedalaman: {data['Kedalaman']}",
+            icon=folium.Icon(color='red')
+        ).add_to(m)
+        folium_static(m)
 
-# Menampilkan data dari MongoDB
-st.header("Data Gempa Terkini dari MongoDB")
-client = MongoClient("mongodb://localhost:27017/")
-db = client["gempa"]
-collection = db["real_time_data"]
+# Fungsi untuk analisis data menggunakan Apache Spark
+def analyze_data_with_spark():
+    # Inisialisasi Spark Session dengan konfigurasi MongoDB
+    spark = SparkSession.builder \
+        .appName("EarthquakeDataAnalysis") \
+        .config("spark.mongodb.input.uri", f"{MONGODB_URI}/gempa.real_time_data") \
+        .config("spark.mongodb.output.uri", f"{MONGODB_URI}/gempa.real_time_data") \
+        .config("spark.jars.packages", "org.mongodb.spark:mongo-spark-connector_2.12:10.2.0") \
+        .master("spark://spark-master:7077") \
+        .getOrCreate()
 
-# Fetch data dari MongoDB
-mongo_data = list(collection.find().sort("Tanggal", -1).limit(10))
+    try:
+        # Baca data dari MongoDB
+        df = spark.read.format("mongodb").load()
 
-if mongo_data:
-    st.write("Berikut adalah data gempa terkini:")
-    for item in mongo_data:
-        st.write(f"**Tanggal:** {item.get('Tanggal')}, **Jam:** {item.get('Jam')}")
-        st.write(f"**Magnitudo:** {item.get('Magnitudo')}, **Wilayah:** {item.get('Wilayah')}")
-        st.write("---")
-else:
-    st.warning("Tidak ada data di MongoDB. Klik tombol 'Ambil Data Real-Time' untuk memulai.")
+        # Contoh analisis sederhana: Hitung rata-rata magnitude gempa
+        avg_magnitude = df.select(col("Magnitude").cast("float")).groupBy().avg().collect()[0][0]
 
+        # Contoh analisis lain: Hitung jumlah gempa per wilayah
+        earthquake_count_by_region = df.groupBy("Wilayah").count()
+
+        return avg_magnitude, earthquake_count_by_region
+    finally:
+        # Stop Spark Session
+        spark.stop()
+
+# Rest of your Streamlit app code remains the same...
