@@ -7,6 +7,7 @@ services:
       - "8501:8501"
     environment:
       - MONGODB_URI=mongodb+srv://hafiizhherdian:Herdian17@cluster0.c1cmt.mongodb.net/
+      - SPARK_MASTER=spark://spark-master:7077
     volumes:
       - .:/app
     depends_on:

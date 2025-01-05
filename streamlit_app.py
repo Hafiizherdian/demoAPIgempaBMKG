@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import requests
 from pymongo import MongoClient
@@ -72,4 +71,61 @@ def analyze_data_with_spark():
         # Stop Spark Session
         spark.stop()
 
-# Rest of your Streamlit app code remains the same...
+# Tampilan aplikasi dengan Streamlit
+st.title("Dashboard Data Gempa Terkini dengan Apache Spark")
+
+# Tombol untuk mengambil data
+if st.button("Ambil Data Real-Time"):
+    data = fetch_earthquake_data()
+    if data:
+        st.success("Data berhasil diambil!")
+        save_to_mongodb(data)
+        st.write(data)
+        display_map(data)
+
+# Menampilkan data dari MongoDB
+st.header("Data Gempa Terkini dari MongoDB")
+client = MongoClient(MONGODB_URI)
+db = client["gempa"]
+collection = db["real_time_data"]
+
+# Fetch data dari MongoDB
+mongo_data = list(collection.find().sort("Tanggal", -1).limit(10))
+
+if mongo_data:
+    st.write("Berikut adalah data gempa terkini:")
+    for item in mongo_data:
+        st.write(f"**Tanggal:** {item.get('Tanggal')}, **Jam:** {item.get('Jam')}")
+        st.write(f"**Magnitude:** {item.get('Magnitude')}, **Wilayah:** {item.get('Wilayah')}")
+        st.write(f"**Kedalaman:** {item.get('Kedalaman')}, **Koordinat:** {item.get('Lintang')}, {item.get('Bujur')}")
+        st.write("---")
+else:
+    st.warning("Tidak ada data di MongoDB. Klik tombol 'Ambil Data Real-Time' untuk memulai.")
+
+# Analisis Data: Tren Gempa Berdasarkan Waktu
+st.header("Analisis Tren Gempa Berdasarkan Waktu")
+if mongo_data:
+    df = pd.DataFrame(mongo_data)
+    
+    # Perbaikan timezone: Hilangkan "WIB" dari string waktu
+    df['Waktu'] = pd.to_datetime(df['Tanggal'] + ' ' + df['Jam'].str.replace(" WIB", ""))
+    
+    # Set timezone ke Asia/Jakarta
+    df['Waktu'] = df['Waktu'].dt.tz_localize('Asia/Jakarta')
+    
+    # Pastikan kolom 'Magnitude' ada di DataFrame
+    if 'Magnitude' in df.columns:
+        df.set_index('Waktu', inplace=True)
+        st.line_chart(df['Magnitude'])
+    else:
+        st.warning("Kolom 'Magnitude' tidak ditemukan dalam data.")
+else:
+    st.warning("Tidak ada data untuk dianalisis.")
+
+# Analisis Data dengan Apache Spark
+st.header("Analisis Data dengan Apache Spark")
+if st.button("Analisis Data dengan Spark"):
+    avg_magnitude, earthquake_count_by_region = analyze_data_with_spark()
+    st.write(f"**Rata-rata Magnitude Gempa:** {avg_magnitude}")
+    st.write("**Jumlah Gempa per Wilayah:**")
+    st.write(earthquake_count_by_region.toPandas())
